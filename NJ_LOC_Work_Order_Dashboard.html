@@ -289,7 +289,7 @@ tr:hover td{background:#F3EFE2;}
       <p class="card-footnote">"Inactionable" combines unassigned work orders and those assigned to 2026 Jamboree LOC (Work Order Management) &mdash; this bucket represents duplicate requests, unworkable requests, and status-update requests rather than active workload.</p>
     </div>
     <div class="panel panel-wide">
-      <h3>New requests per day</h3>
+      <h3>New requests per day &mdash; vs. 2023 (day-aligned)</h3>
       <div id="chartTime" class="timeline"></div>
     </div>
   </div>
@@ -453,25 +453,57 @@ function renderPie(containerId, counts, colorMap, order, onClick, activeVal){
   });
 }
 
+// 2023 National Jamboree daily "Work Orders Created" (Fiix export), aligned to the
+// 2026 calendar by treating 19 July 2023 (Participants Arrive) as equivalent to
+// 22 July 2026. Source: Daily_Work_Orders_Created_2017_to_2023.xlsx
+const COMPARISON_2023 = [
+  {date:"2026-07-18", count:95},
+  {date:"2026-07-19", count:115},
+  {date:"2026-07-20", count:129},
+  {date:"2026-07-21", count:99},
+  {date:"2026-07-22", count:130},
+  {date:"2026-07-23", count:126},
+  {date:"2026-07-24", count:88},
+  {date:"2026-07-25", count:68},
+  {date:"2026-07-26", count:53},
+  {date:"2026-07-27", count:62},
+  {date:"2026-07-28", count:37},
+  {date:"2026-07-29", count:36},
+  {date:"2026-07-30", count:22}
+];
+const ARRIVAL_DATE_2026 = "2026-07-22"; // 2023-07-19 equivalent
+
 function renderTimeline(){
   const el = document.getElementById('chartTime');
   el.className = '';
   el.innerHTML = "";
 
-  // group by calendar day
+  // group actual data by calendar day (use the ISO date directly to avoid timezone drift)
   const byDay = {};
   RAW.forEach(r=>{
     if(!r.date) return;
-    const d = new Date(r.date);
-    const key = d.toLocaleDateString(undefined,{year:'numeric',month:'2-digit',day:'2-digit'});
+    const key = r.date.slice(0,10);
     byDay[key] = (byDay[key]||0)+1;
   });
-  const days = Object.keys(byDay).sort((a,b)=> new Date(a)-new Date(b));
-  if(days.length===0){ el.innerHTML = '<p style="font-size:12px;color:var(--ink-soft);">No dated records.</p>'; return; }
+  const actualDates = Object.keys(byDay).sort();
+  if(actualDates.length===0){ el.innerHTML = '<p style="font-size:12px;color:var(--ink-soft);">No dated records.</p>'; return; }
+  const actualMaxDate = actualDates[actualDates.length-1];
 
-  const counts = days.map(d=>byDay[d]);
-  const max = Math.max(...counts, 1);
-  const w = 1100, h = 190, padL = 40, padR = 20, padT = 20, padB = 30;
+  const compByDay = {};
+  COMPARISON_2023.forEach(r=> compByDay[r.date] = r.count);
+
+  // union of days across both series, chronological
+  const days = Array.from(new Set([...actualDates, ...Object.keys(compByDay)])).sort();
+
+  // actual counts: real (possibly 0) up through the last reported day, null beyond it
+  const counts = days.map(d => d <= actualMaxDate ? (byDay[d]||0) : null);
+  const compCounts = days.map(d => (d in compByDay) ? compByDay[d] : null);
+
+  const actualVals = counts.filter(v=>v!==null);
+  const compVals = compCounts.filter(v=>v!==null);
+  const max = Math.max(...actualVals, ...compVals, 1);
+
+  const w = 1100, h = 205, padL = 40, padR = 20, padT = 34, padB = 30;
   const plotW = w - padL - padR, plotH = h - padT - padB;
   const stepX = days.length>1 ? plotW/(days.length-1) : 0;
   const pt = (i,v) => {
@@ -479,11 +511,28 @@ function renderTimeline(){
     const y = padT + plotH - (v/max)*plotH;
     return [x,y];
   };
-  const pathPts = counts.map((v,i)=>pt(i,v));
-  const linePath = pathPts.map((p,i)=> (i===0?'M':'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
-  const areaPath = linePath + ` L${pathPts[pathPts.length-1][0].toFixed(1)},${padT+plotH} L${pathPts[0][0].toFixed(1)},${padT+plotH} Z`;
 
-  const dayLabel = (d) => new Date(d).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  // build a (possibly gapped) SVG path from a values array, breaking on null
+  const buildPath = (vals) => {
+    let path = '', started = false;
+    vals.forEach((v,i)=>{
+      if(v===null){ started=false; return; }
+      const [x,y] = pt(i,v);
+      path += (started?'L':'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+      started = true;
+    });
+    return path.trim();
+  };
+
+  const linePath = buildPath(counts);
+  const lastActualIdx = counts.reduce((last,v,i)=> v!==null?i:last, -1);
+  const firstActualIdx = counts.findIndex(v=>v!==null);
+  const areaPath = (firstActualIdx>-1)
+    ? `${linePath} L${pt(lastActualIdx, counts[lastActualIdx])[0].toFixed(1)},${padT+plotH} L${pt(firstActualIdx, counts[firstActualIdx])[0].toFixed(1)},${padT+plotH} Z`
+    : '';
+  const compPath = buildPath(compCounts);
+
+  const dayLabel = (d) => new Date(d+'T00:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'});
 
   let gridlines = '';
   for(let i=0;i<=3;i++){
@@ -492,12 +541,23 @@ function renderTimeline(){
     gridlines += `<text x="${padL-6}" y="${(y+3).toFixed(1)}" font-size="10" fill="var(--ink-soft)" text-anchor="end" font-family="var(--font-mono)">${Math.round(max*i/3)}</text>`;
   }
 
+  // participant-arrival marker
+  let arrivalMarker = '';
+  const arrivalIdx = days.indexOf(ARRIVAL_DATE_2026);
+  if(arrivalIdx > -1){
+    const x = padL + stepX*arrivalIdx;
+    arrivalMarker = `<line x1="${x.toFixed(1)}" y1="${padT}" x2="${x.toFixed(1)}" y2="${padT+plotH}" stroke="var(--slate)" stroke-width="1.5" stroke-dasharray="3,3"/>`;
+  }
+
   let dots = '', labels = '';
-  pathPts.forEach((p,i)=>{
-    const isMax = counts[i]===max;
-    dots += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isMax?5:3.5}" fill="${isMax?'#E8620C':'#3E6B4F'}" stroke="#FBF8F0" stroke-width="1.5"/>`;
-    dots += `<text x="${p[0].toFixed(1)}" y="${(p[1]-10).toFixed(1)}" font-size="11" fill="var(--ink)" text-anchor="middle" font-family="var(--font-mono)">${counts[i]}</text>`;
-    labels += `<text x="${p[0].toFixed(1)}" y="${h-6}" font-size="10" fill="var(--ink-soft)" text-anchor="middle" font-family="var(--font-mono)">${dayLabel(days[i])}</text>`;
+  days.forEach((d,i)=>{
+    const v = counts[i];
+    labels += `<text x="${(padL+stepX*i).toFixed(1)}" y="${h-6}" font-size="10" fill="var(--ink-soft)" text-anchor="middle" font-family="var(--font-mono)">${dayLabel(d)}</text>`;
+    if(v===null) return;
+    const [x,y] = pt(i,v);
+    const isMax = v===max;
+    dots += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${isMax?5:3.5}" fill="${isMax?'#E8620C':'#3E6B4F'}" stroke="#FBF8F0" stroke-width="1.5"/>`;
+    dots += `<text x="${x.toFixed(1)}" y="${(y-13).toFixed(1)}" font-size="11" fill="var(--ink)" text-anchor="middle" font-family="var(--font-mono)">${v}</text>`;
   });
 
   el.innerHTML = `
@@ -509,11 +569,18 @@ function renderTimeline(){
         </linearGradient>
       </defs>
       ${gridlines}
+      ${arrivalMarker}
       <path d="${areaPath}" fill="url(#tlFade)"/>
+      <path d="${compPath}" fill="none" stroke="var(--amber)" stroke-width="1.75" stroke-dasharray="5,3"/>
       <path d="${linePath}" fill="none" stroke="#3E6B4F" stroke-width="2"/>
       ${dots}
       ${labels}
-    </svg>`;
+    </svg>
+    <div style="display:flex;gap:14px;justify-content:center;align-items:center;margin-top:12px;font-size:10px;color:var(--ink-soft);font-family:var(--font-mono);flex-wrap:wrap;">
+      <span style="display:flex;align-items:center;gap:4px;"><svg width="14" height="6"><line x1="0" y1="3" x2="14" y2="3" stroke="#3E6B4F" stroke-width="2"/></svg>2026 actual</span>
+      <span style="display:flex;align-items:center;gap:4px;"><svg width="14" height="6"><line x1="0" y1="3" x2="14" y2="3" stroke="var(--amber)" stroke-width="2" stroke-dasharray="4,2"/></svg>2023 comparison (day-aligned)</span>
+      <span style="display:flex;align-items:center;gap:4px;"><svg width="14" height="6"><line x1="7" y1="0" x2="7" y2="6" stroke="var(--slate)" stroke-width="2" stroke-dasharray="3,2"/></svg>Participant arrival</span>
+    </div>`;
 }
 
 function renderTeamClosedTable(){
