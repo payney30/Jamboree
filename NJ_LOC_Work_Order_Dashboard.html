@@ -343,7 +343,7 @@ let state = {status:"", priority:"", type:"", loc:"", team:"", search:"", sortKe
 
 const INACTIONABLE_RAW = "2026 Jamboree LOC (Work Order Management)";
 function normalizeTeam(name){
-  if(!name || name === INACTIONABLE_RAW) return "Inactionable";
+  if(!name || name === "Unassigned" || name === INACTIONABLE_RAW) return "Inactionable";
   return name;
 }
 
