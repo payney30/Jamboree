@@ -294,14 +294,6 @@ tr:hover td{background:#F3EFE2;}
     </div>
   </div>
 
-  <div class="section-title">Open work orders needing attention <span style="font-weight:400; text-transform:none; letter-spacing:0; color:var(--ink-soft); font-family:var(--font-body); margin-left:4px;">(oldest highest-priority first)</span></div>
-  <div class="table-wrap">
-    <table id="attentionTable">
-      <thead><tr><th>Code</th><th>Priority</th><th>Age</th><th>Description</th><th>Location</th><th>Status</th><th>Assigned</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </div>
-
   <div class="section-title">All work orders <span id="tblSubtitle" style="font-weight:400; text-transform:none; letter-spacing:0; color:var(--ink-soft); font-family:var(--font-body); margin-left:4px;"></span></div>
   <div class="table-wrap">
     <table id="mainTable">
@@ -310,7 +302,7 @@ tr:hover td{background:#F3EFE2;}
         <th data-k="priority">Priority</th>
         <th data-k="status">Status</th>
         <th data-k="description">Description</th>
-        <th data-k="locGroup">Location</th>
+        <th data-k="assets">Location</th>
         <th data-k="type">Type</th>
         <th data-k="assignedUsers">Assigned</th>
         <th data-k="date">Created</th>
@@ -642,27 +634,6 @@ function renderKPIs(filtered){
   el.innerHTML = html;
 }
 
-function renderAttentionTable(){
-  const openOrders = RAW.filter(r=>!r.status.startsWith('Closed'));
-  openOrders.sort((a,b)=>{
-    const pa = PRIORITY_ORDER.indexOf(a.priority), pb = PRIORITY_ORDER.indexOf(b.priority);
-    if(pa!==pb) return pa-pb;
-    return new Date(a.date||0) - new Date(b.date||0);
-  });
-  const top = openOrders.slice(0,8);
-  const tbody = document.querySelector('#attentionTable tbody');
-  tbody.innerHTML = top.map(r=>`
-    <tr>
-      <td class="code-cell">#${r.code}</td>
-      <td><span class="chip chip-${(r.priority||'Unset').replace(/\s/g,'')}">${r.priority}</span></td>
-      <td class="code-cell">${ageLabel(ageHours(r.date))}</td>
-      <td class="desc-cell" title="${(r.description||'').replace(/"/g,'&quot;')}">${(r.description||'').split('\n')[0]}</td>
-      <td>${r.locGroup}</td>
-      <td><span class="status-dot dot-${r.status.replace(/[, ]/g,'')}"></span>${r.status}</td>
-      <td>${r.assignedUsers}</td>
-    </tr>`).join('');
-}
-
 function renderMainTable(filtered){
   document.getElementById('tblSubtitle').textContent = `(${filtered.length} of ${RAW.length} shown)`;
   document.getElementById('filterCount').textContent = `${filtered.length} of ${RAW.length} orders`;
@@ -681,7 +652,7 @@ function renderMainTable(filtered){
       <td><span class="chip chip-${(r.priority||'Unset').replace(/\s/g,'')}">${r.priority}</span></td>
       <td><span class="status-dot dot-${r.status.replace(/[, ]/g,'')}"></span>${r.status}</td>
       <td class="desc-cell" title="${(r.description||'').replace(/"/g,'&quot;')}">${(r.description||'').split('\n')[0]}</td>
-      <td>${r.locGroup}</td>
+      <td class="desc-cell" title="${(r.assets||'').replace(/"/g,'&quot;')}">${(r.assets||'').split(',')[0].trim() || '\u2014'}</td>
       <td>${r.type}</td>
       <td>${r.assignedUsers}</td>
       <td class="code-cell">${fmtDate(r.date)}</td>
@@ -752,7 +723,6 @@ function init(){
   });
 
   renderTimeline();
-  renderAttentionTable();
   renderTeamClosedTable();
   render();
 }
